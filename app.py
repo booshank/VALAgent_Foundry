@@ -33,10 +33,15 @@ def configuration() -> tuple[str | None, str | None]:
 
 
 @st.cache_resource(show_spinner=False)
-def get_project_client(connection_string: str) -> AIProjectClient:
+def get_project_client(project_endpoint: str) -> AIProjectClient:
     """Create one authenticated Azure AI Foundry client per Streamlit process."""
-    return AIProjectClient.from_connection_string(
-        conn_str=connection_string,
+    if not project_endpoint.startswith(("https://", "http://")):
+        raise ValueError(
+            "PROJECT_CONNECTION_STRING must be the Azure AI Foundry project endpoint URL, "
+            "for example https://<resource>.services.ai.azure.com/api/projects/<project>."
+        )
+    return AIProjectClient(
+        endpoint=project_endpoint,
         credential=DefaultAzureCredential(),
     )
 
@@ -50,8 +55,8 @@ def setup_thread() -> None:
 
     try:
         client = get_project_client(connection_string)
-        st.session_state.thread_id = client.agents.create_thread().id
-    except (ClientAuthenticationError, HttpResponseError, OSError) as error:
+        st.session_state.thread_id = client.agents.threads.create().id
+    except (ClientAuthenticationError, HttpResponseError, OSError, ValueError) as error:
         st.session_state.thread_id = None
         st.session_state.connection_error = str(error)
 
@@ -81,8 +86,8 @@ def message_text(message: Any) -> str:
 
 def latest_assistant_response(client: AIProjectClient, thread_id: str) -> str:
     """Return the newest text response produced on a Foundry thread."""
-    messages = client.agents.list_messages(thread_id=thread_id)
-    for message in messages.data:
+    messages = client.agents.messages.list(thread_id=thread_id, order="desc")
+    for message in messages:
         if getattr(message, "role", None) == "assistant":
             response = message_text(message)
             if response:
@@ -124,17 +129,16 @@ def ask_val(prompt: str) -> None:
 
     try:
         client = get_project_client(connection_string)
-        # create_message is the Azure AI Projects API for posting to a thread.
-        client.agents.create_message(
+        client.agents.messages.create(
             thread_id=st.session_state.thread_id,
             role="user",
             content=prompt,
         )
         with st.chat_message("assistant"):
             with st.spinner("VAL is analyzing contract data..."):
-                client.agents.create_and_process_run(
+                client.agents.runs.create_and_process(
                     thread_id=st.session_state.thread_id,
-                    assistant_id=agent_id,
+                    agent_id=agent_id,
                 )
                 response = latest_assistant_response(client, st.session_state.thread_id)
             st.markdown(response)
