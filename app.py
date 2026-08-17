@@ -196,7 +196,13 @@ with st.sidebar:
             st.session_state.pending_prompt = action
 
 if st.session_state.connection_error:
-    st.warning("Unable to create a Foundry thread. See the authentication guidance after sending a prompt.")
+    st.error("VAL could not create a Foundry thread because Azure authentication failed.")
+    st.info(
+        "Sign in with Azure CLI (`az login`) or configure a managed identity / service principal "
+        "with access to this Foundry project, then click **New Conversation**."
+    )
+    with st.expander("Connection details"):
+        st.code(st.session_state.connection_error)
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
