@@ -120,7 +120,14 @@ def ask_val(prompt: str) -> None:
     if not st.session_state.thread_id:
         setup_thread()
     if not st.session_state.thread_id:
-        st.error("A Foundry conversation could not be created. Check the connection details.")
+        st.error("A Foundry conversation could not be created.")
+        if st.session_state.connection_error:
+            st.info(
+                "Azure AI Foundry rejected the thread request. Review the connection details "
+                "below for the exact service response."
+            )
+            with st.expander("Connection details", expanded=True):
+                st.code(st.session_state.connection_error)
         return
 
     st.session_state.messages.append({"role": "user", "content": prompt})
