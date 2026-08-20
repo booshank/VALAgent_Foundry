@@ -1,7 +1,7 @@
 # VAL Vendor Analysis Assistant
 ## Windows local deployment guide
 
-This guide runs the current Streamlit application locally on Windows. The application uses the Azure OpenAI Python client with an Azure OpenAI endpoint, deployment name, API key, and API version. It does not require Azure CLI authentication or Azure AI Foundry thread access.
+This guide runs the current Streamlit application locally on Windows. The application authenticates with Azure using `DefaultAzureCredential`, then invokes the deployed VAL agent through the Azure AI Foundry Responses API. It requires Azure CLI sign-in or another supported Azure identity.
 
 ### 1. Prerequisites
 
@@ -43,7 +43,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 4. Configure Azure OpenAI credentials
+### 4. Configure Azure AI Foundry
 
 Create a local configuration file:
 
@@ -55,17 +55,27 @@ notepad .env
 Replace every placeholder in `.env`:
 
 ```dotenv
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=your-deployment-name
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_AIPROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
+AZURE_AIPROJECT_API_VERSION=2025-04-01-preview
+AZURE_VAL_AGENT_NAME=your-val-agent-name
+AZURE_VAL_AGENT_VERSION=1
 ```
 
-Use the endpoint and one of the API keys shown on the Azure OpenAI resource's **Keys and Endpoint** page. Use the deployment name from the Azure AI Foundry/Azure OpenAI deployment page; it can differ from the underlying model name.
+Use the project endpoint and deployed agent name/version from Azure AI Foundry. The API version must support agent references through the Responses API.
 
-Keep `.env` private. It is ignored by Git and must never be committed or shared. If an API key was exposed in source control, rotate it in Azure immediately and update `.env` with the replacement.
+Keep `.env` private. It is ignored by Git and must never be committed or shared.
 
-### 5. Run the application
+### 5. Authenticate with Azure CLI
+
+Install Azure CLI if needed, then authenticate with an Azure identity that can invoke the Foundry agent:
+
+```powershell
+az login --use-device-code
+```
+
+Complete sign-in in the displayed browser flow. The identity needs access to the target Foundry project and agent.
+
+### 6. Run the application
 
 With the virtual environment still active:
 
@@ -81,10 +91,10 @@ http://localhost:8501
 
 Stop the server with `Ctrl+C`.
 
-### 6. Verify the application
+### 7. Verify the application
 
-1. The sidebar should show **Azure OpenAI configuration detected**.
-2. Confirm the sidebar model equals your deployment name.
+1. The sidebar should show **Foundry agent configuration detected**.
+2. Confirm the agent information lists **Foundry-managed agent**.
 3. Click **New Conversation**.
 4. Send a prompt such as `Summarize the highest contract risks.`
 5. Verify the assistant responds and that a follow-up question retains the prior chat context.
@@ -95,14 +105,14 @@ Stop the server with `Ctrl+C`.
 | --- | --- |
 | `py` is not recognized | Reinstall Python and select **Add Python to PATH**, then open a new PowerShell window. |
 | `streamlit` is not recognized | Activate `.venv` and run `pip install -r requirements.txt` again. |
-| Configuration required | Check all four `AZURE_OPENAI_*` values in `.env`; restart Streamlit after editing the file. |
-| Azure OpenAI rejected the API key | Verify the key belongs to the resource in `AZURE_OPENAI_ENDPOINT`; rotate and replace the key if needed. |
-| Deployment not found | Set `AZURE_OPENAI_DEPLOYMENT` to the Azure deployment name, not only the model name. |
-| Network or firewall error | Configure Azure OpenAI resource networking to allow the Windows machine's network, or use the organization-approved private endpoint/VPN path. |
+| Configuration required | Check all four `AZURE_AIPROJECT_*` / `AZURE_VAL_AGENT_*` values in `.env`; restart Streamlit after editing the file. |
+| Azure authentication failed | Run `az login --use-device-code` and use an identity that can access the Foundry project. |
+| Agent reference error | Verify the agent name and version exactly match the deployed Foundry agent. |
+| Network or firewall error | Configure Foundry project networking to allow the Windows machine's network, or use the organization-approved private endpoint/VPN path. |
 
 ### Security checklist
 
 - Store secrets only in `.env` or a managed secret store.
 - Do not place credentials in `app.py`, `.env.example`, screenshots, tickets, or commits.
-- Use a least-privilege Azure OpenAI key and rotate it according to your organization's policy.
-- Restrict Azure OpenAI network access according to your organization's security requirements.
+- Use a least-privilege Azure identity to access the Foundry project.
+- Restrict Foundry project network access according to your organization's security requirements.

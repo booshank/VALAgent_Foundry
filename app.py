@@ -1,20 +1,19 @@
-"""Streamlit interface for the VAL (Vendor Analysis) Azure OpenAI assistant."""
+"""Streamlit interface for the VAL (Vendor Analysis) Foundry agent."""
 
 import os
 
 import streamlit as st
+from azure.ai.projects import AIProjectClient
+from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
-from openai import APIConnectionError, APIStatusError, AuthenticationError, AzureOpenAI
+from openai import APIConnectionError, APIStatusError, AuthenticationError
 
 
 load_dotenv()
 
-AGENT_NAME = "VAL - Vendor Analysis Assistant"
-MODEL_NAME = "gpt-5-mini"
+AGENT_NAME = "VAL - Vendor Analysis Agent"
+MODEL_NAME = "Foundry-managed agent"
 ANALYSIS_MODE = "JSON Dataset Analysis"
-SYSTEM_PROMPT = """You are VAL, a vendor and contract analysis assistant.
-Analyze the available vendor dataset carefully. Present clear, actionable insights in Markdown.
-Use tables when they improve comparison and call out material contract risks explicitly."""
 
 QUICK_ACTIONS = (
     "📊 Detect Tool Overlaps",
@@ -25,28 +24,62 @@ QUICK_ACTIONS = (
 
 
 def configuration() -> tuple[str | None, str | None, str | None, str | None]:
-    """Return the Azure OpenAI endpoint, deployment, API key, and API version."""
+    """Return configuration required to invoke the deployed VAL agent."""
     return (
-        os.getenv("AZURE_OPENAI_ENDPOINT"),
-        os.getenv("AZURE_OPENAI_DEPLOYMENT"),
-        os.getenv("AZURE_OPENAI_API_KEY"),
-        os.getenv("AZURE_OPENAI_API_VERSION"),
+        os.getenv("AZURE_AIPROJECT_ENDPOINT") or os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT"),
+        os.getenv("AZURE_AIPROJECT_API_VERSION"),
+        os.getenv("AZURE_VAL_AGENT_NAME") or os.getenv("AZURE_CLASSIFY_AGENT_NAME"),
+        os.getenv("AZURE_VAL_AGENT_VERSION") or os.getenv("AZURE_CLASSIFY_AGENT_VERSION"),
     )
 
 
 @st.cache_resource(show_spinner=False)
-def get_openai_client(endpoint: str, api_version: str, api_key: str) -> AzureOpenAI:
-    """Create one API-key authenticated Azure OpenAI client per Streamlit process."""
-    if not endpoint.startswith(("https://", "http://")):
+def get_foundry_openai_client(project_endpoint: str, api_version: str):
+    """Create an OpenAI Responses client authorized through the Foundry project."""
+    if not project_endpoint.startswith(("https://", "http://")):
         raise ValueError(
-            "AZURE_OPENAI_ENDPOINT must be an Azure OpenAI endpoint URL, "
-            "for example https://<resource>.openai.azure.com/."
+            "AZURE_AIPROJECT_ENDPOINT must be the Foundry project endpoint URL, "
+            "for example https://<resource>.services.ai.azure.com/api/projects/<project>."
         )
-    return AzureOpenAI(
-        api_version=api_version,
-        azure_endpoint=endpoint,
-        api_key=api_key,
+    project_client = AIProjectClient(
+        endpoint=project_endpoint,
+        credential=DefaultAzureCredential(),
     )
+    return project_client.get_openai_client(api_version=api_version)
+
+
+def invoke_val_agent(messages: list[dict[str, str]]) -> str:
+    """Run the deployed VAL agent using Foundry's Responses API."""
+    project_endpoint, api_version, agent_name, agent_version = configuration()
+    if not all((project_endpoint, api_version, agent_name, agent_version)):
+        raise RuntimeError(
+            "Set AZURE_AIPROJECT_ENDPOINT, AZURE_AIPROJECT_API_VERSION, "
+            "AZURE_VAL_AGENT_NAME, and AZURE_VAL_AGENT_VERSION in .env."
+        )
+
+    input_items = [
+        {
+            "role": message["role"],
+            "content": [{"type": "input_text", "text": message["content"]}],
+        }
+        for message in messages
+        if message["content"].strip()
+    ]
+    if not input_items:
+        raise RuntimeError("VAL received no non-empty messages.")
+
+    client = get_foundry_openai_client(project_endpoint, api_version)
+    response = client.responses.create(
+        input=input_items,
+        extra_body={
+            "agent_reference": {
+                "name": agent_name,
+                "version": agent_version,
+                "type": "agent_reference",
+            }
+        },
+    )
+    return (response.output_text or "").strip()
 
 
 def new_conversation() -> None:
@@ -57,12 +90,12 @@ def new_conversation() -> None:
 
 def ask_val(prompt: str) -> None:
     """Send a prompt to VAL and append its answer to local chat history."""
-    endpoint, deployment, subscription_key, api_version = configuration()
-    if not all((endpoint, deployment, subscription_key, api_version)):
+    project_endpoint, api_version, agent_name, agent_version = configuration()
+    if not all((project_endpoint, api_version, agent_name, agent_version)):
         st.error(
-            "Missing Azure OpenAI configuration. Add `AZURE_OPENAI_ENDPOINT`, "
-            "`AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_KEY`, and "
-            "`AZURE_OPENAI_API_VERSION` to `.env`, then restart Streamlit."
+            "Missing Foundry agent configuration. Add `AZURE_AIPROJECT_ENDPOINT`, "
+            "`AZURE_AIPROJECT_API_VERSION`, `AZURE_VAL_AGENT_NAME`, and "
+            "`AZURE_VAL_AGENT_VERSION` to `.env`, then restart Streamlit."
         )
         return
 
@@ -71,22 +104,16 @@ def ask_val(prompt: str) -> None:
         st.markdown(prompt)
 
     try:
-        client = get_openai_client(endpoint, api_version, subscription_key)
-        conversation = [{"role": "system", "content": SYSTEM_PROMPT}, *st.session_state.messages]
         with st.chat_message("assistant"):
             with st.spinner("VAL is analyzing contract data..."):
-                completion = client.chat.completions.create(
-                    model=deployment,
-                    messages=conversation,
-                )
-                response = completion.choices[0].message.content or (
-                    "VAL completed the analysis but did not return a text response."
-                )
+                response = invoke_val_agent(st.session_state.messages)
+                if not response:
+                    response = "VAL completed the analysis but did not return a text response."
             st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
     except AuthenticationError as error:
-        st.error("Azure OpenAI rejected the API key.")
-        st.info("Verify `AZURE_OPENAI_API_KEY` and the target Azure OpenAI resource.")
+        st.error("Azure rejected the identity used to access the Foundry project.")
+        st.info("Run `az login` or configure a managed identity with Foundry project access.")
         with st.expander("Technical details"):
             st.code(str(error))
     except (APIConnectionError, APIStatusError) as error:
@@ -108,20 +135,20 @@ if "messages" not in st.session_state:
 if "connection_error" not in st.session_state:
     st.session_state.connection_error = None
 
-endpoint, deployment, subscription_key, api_version = configuration()
+project_endpoint, api_version, agent_name, agent_version = configuration()
 
 with st.sidebar:
     st.header("VAL Control Center")
-    if all((endpoint, deployment, subscription_key, api_version)):
-        st.success("● Azure OpenAI configuration detected")
+    if all((project_endpoint, api_version, agent_name, agent_version)):
+        st.success("● Foundry agent configuration detected")
     else:
         st.warning("● Configuration required")
-        st.caption("Set the `AZURE_OPENAI_*` variables in `.env`.")
+        st.caption("Set the `AZURE_AIPROJECT_*` and `AZURE_VAL_AGENT_*` variables in `.env`.")
 
     st.subheader("Agent Information")
     st.markdown(
         f"**Name**  \n{AGENT_NAME}\n\n"
-        f"**Model**  \n{deployment or MODEL_NAME}\n\n"
+        f"**Model**  \n{MODEL_NAME}\n\n"
         f"**Mode**  \n{ANALYSIS_MODE}"
     )
 
