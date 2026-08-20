@@ -56,7 +56,7 @@ Replace every placeholder in `.env`:
 
 ```dotenv
 AZURE_AIPROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
-AZURE_AIPROJECT_API_VERSION=2025-04-01-preview
+OPENAI_API_VERSION=2025-04-01-preview
 AZURE_VAL_AGENT_NAME=your-val-agent-name
 AZURE_VAL_AGENT_VERSION=1
 ```
@@ -105,7 +105,7 @@ Stop the server with `Ctrl+C`.
 | --- | --- |
 | `py` is not recognized | Reinstall Python and select **Add Python to PATH**, then open a new PowerShell window. |
 | `streamlit` is not recognized | Activate `.venv` and run `pip install -r requirements.txt` again. |
-| Configuration required | Check all four `AZURE_AIPROJECT_*` / `AZURE_VAL_AGENT_*` values in `.env`; restart Streamlit after editing the file. |
+| Configuration required | Check `AZURE_AIPROJECT_ENDPOINT`, `OPENAI_API_VERSION`, and the `AZURE_VAL_AGENT_*` values in `.env`; restart Streamlit after editing the file. |
 | Azure authentication failed | Run `az login --use-device-code` and use an identity that can access the Foundry project. |
 | Agent reference error | Verify the agent name and version exactly match the deployed Foundry agent. |
 | Network or firewall error | Configure Foundry project networking to allow the Windows machine's network, or use the organization-approved private endpoint/VPN path. |

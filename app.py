@@ -27,7 +27,7 @@ def configuration() -> tuple[str | None, str | None, str | None, str | None]:
     """Return configuration required to invoke the deployed VAL agent."""
     return (
         os.getenv("AZURE_AIPROJECT_ENDPOINT") or os.getenv("AZURE_EXISTING_AIPROJECT_ENDPOINT"),
-        os.getenv("AZURE_AIPROJECT_API_VERSION"),
+        os.getenv("OPENAI_API_VERSION") or os.getenv("AZURE_AIPROJECT_API_VERSION"),
         os.getenv("AZURE_VAL_AGENT_NAME") or os.getenv("AZURE_CLASSIFY_AGENT_NAME"),
         os.getenv("AZURE_VAL_AGENT_VERSION") or os.getenv("AZURE_CLASSIFY_AGENT_VERSION"),
     )
@@ -36,7 +36,7 @@ def configuration() -> tuple[str | None, str | None, str | None, str | None]:
 @st.cache_resource(show_spinner=False)
 def get_foundry_openai_client(project_endpoint: str, api_version: str):
     """Create an OpenAI Responses client authorized through the Foundry project."""
-    if not project_endpoint.startswith(("https://", "http://")):
+    if not project_endpoint or not project_endpoint.startswith(("https://", "http://")):
         raise ValueError(
             "AZURE_AIPROJECT_ENDPOINT must be the Foundry project endpoint URL, "
             "for example https://<resource>.services.ai.azure.com/api/projects/<project>."
@@ -45,7 +45,10 @@ def get_foundry_openai_client(project_endpoint: str, api_version: str):
         endpoint=project_endpoint,
         credential=DefaultAzureCredential(),
     )
-    return project_client.get_openai_client(api_version=api_version)
+    # AIProjectClient reads this value when it constructs its Azure OpenAI client.
+    # Passing api_version directly is incompatible with some current SDK paths.
+    os.environ["OPENAI_API_VERSION"] = api_version
+    return project_client.get_openai_client()
 
 
 def invoke_val_agent(messages: list[dict[str, str]]) -> str:
@@ -53,7 +56,7 @@ def invoke_val_agent(messages: list[dict[str, str]]) -> str:
     project_endpoint, api_version, agent_name, agent_version = configuration()
     if not all((project_endpoint, api_version, agent_name, agent_version)):
         raise RuntimeError(
-            "Set AZURE_AIPROJECT_ENDPOINT, AZURE_AIPROJECT_API_VERSION, "
+            "Set AZURE_AIPROJECT_ENDPOINT, OPENAI_API_VERSION, "
             "AZURE_VAL_AGENT_NAME, and AZURE_VAL_AGENT_VERSION in .env."
         )
 
@@ -94,7 +97,7 @@ def ask_val(prompt: str) -> None:
     if not all((project_endpoint, api_version, agent_name, agent_version)):
         st.error(
             "Missing Foundry agent configuration. Add `AZURE_AIPROJECT_ENDPOINT`, "
-            "`AZURE_AIPROJECT_API_VERSION`, `AZURE_VAL_AGENT_NAME`, and "
+            "`OPENAI_API_VERSION`, `AZURE_VAL_AGENT_NAME`, and "
             "`AZURE_VAL_AGENT_VERSION` to `.env`, then restart Streamlit."
         )
         return
@@ -143,7 +146,7 @@ with st.sidebar:
         st.success("● Foundry agent configuration detected")
     else:
         st.warning("● Configuration required")
-        st.caption("Set the `AZURE_AIPROJECT_*` and `AZURE_VAL_AGENT_*` variables in `.env`.")
+        st.caption("Set the Foundry endpoint, `OPENAI_API_VERSION`, and `AZURE_VAL_AGENT_*` variables in `.env`.")
 
     st.subheader("Agent Information")
     st.markdown(
