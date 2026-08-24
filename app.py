@@ -1,6 +1,7 @@
 """Streamlit interface for the VAL (Vendor Analysis) Foundry agent."""
 
 import os
+import time
 
 import streamlit as st
 from azure.ai.projects import AIProjectClient
@@ -91,6 +92,12 @@ def new_conversation() -> None:
     st.session_state.connection_error = None
 
 
+def render_response_time(seconds: float | None) -> None:
+    """Display an end-to-end Foundry agent response time."""
+    if seconds is not None:
+        st.caption(f"⏱️ VAL response time: {seconds:.2f} seconds")
+
+
 def ask_val(prompt: str) -> None:
     """Send a prompt to VAL and append its answer to local chat history."""
     project_endpoint, api_version, agent_name, agent_version = configuration()
@@ -109,11 +116,20 @@ def ask_val(prompt: str) -> None:
     try:
         with st.chat_message("assistant"):
             with st.spinner("VAL is analyzing contract data..."):
+                started_at = time.perf_counter()
                 response = invoke_val_agent(st.session_state.messages)
+                response_time_seconds = time.perf_counter() - started_at
                 if not response:
                     response = "VAL completed the analysis but did not return a text response."
             st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            render_response_time(response_time_seconds)
+        st.session_state.messages.append(
+            {
+                "role": "assistant",
+                "content": response,
+                "response_time_seconds": response_time_seconds,
+            }
+        )
     except AuthenticationError as error:
         st.error("Azure rejected the identity used to access the Foundry project.")
         st.info("Run `az login` or configure a managed identity with Foundry project access.")
@@ -164,9 +180,23 @@ with st.sidebar:
         if st.button(action, use_container_width=True):
             st.session_state.pending_prompt = action
 
+    response_times = [
+        message["response_time_seconds"]
+        for message in st.session_state.messages
+        if message["role"] == "assistant"
+        and message.get("response_time_seconds") is not None
+    ]
+    if response_times:
+        st.subheader("Response Performance")
+        latest_time, average_time = st.columns(2)
+        latest_time.metric("Latest", f"{response_times[-1]:.2f}s")
+        average_time.metric("Average", f"{sum(response_times) / len(response_times):.2f}s")
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+        if message["role"] == "assistant":
+            render_response_time(message.get("response_time_seconds"))
 
 pending_prompt = st.session_state.pop("pending_prompt", None)
 prompt = pending_prompt or st.chat_input("Ask VAL about your vendor and contract data...")
