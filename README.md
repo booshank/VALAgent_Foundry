@@ -7,6 +7,8 @@ A Streamlit application for querying a deployed Azure AI Foundry vendor-analysis
 - Azure AI Foundry agent integration using `AIProjectClient` and `DefaultAzureCredential`
 - Persistent multi-turn conversations through Foundry threads
 - Quick actions for tool overlaps, high-risk contracts, renewals, and missing clauses
+- Selectable vendor-risk, procurement, and compliance-audit response personas
+- Downloadable JSON exports of the active conversation
 - Markdown response cleanup, including removal of Foundry citation markers
 - Automatic extraction and rendering of Markdown contract tables
 - Renewal status indicators for overdue, 7-day, and 30-day deadlines
