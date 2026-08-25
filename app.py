@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import os
 import re
 import time
@@ -27,6 +28,20 @@ QUICK_ACTIONS = (
     "📅 Upcoming Renewals",
     "🔍 Audit Missing Clauses",
 )
+
+PERSONAS = {
+    "Vendor Risk Analyst": (
+        "Focus on contractual, financial, operational, and vendor concentration risks. "
+        "Prioritize issues by severity and recommend mitigations."
+    ),
+    "Procurement Strategist": (
+        "Focus on spend optimization, supplier consolidation, negotiation opportunities, "
+        "and renewal strategy."
+    ),
+    "Contract Compliance Auditor": (
+        "Focus on missing clauses, policy compliance, obligations, and contract governance gaps."
+    ),
+}
 
 
 # =====================================================
@@ -80,6 +95,30 @@ def new_conversation() -> None:
     st.session_state.messages = []
     st.session_state.thread_id = create_thread()
 
+
+def build_agent_prompt(prompt: str, persona: str) -> str:
+    """Add the selected response persona to the user request."""
+    return (
+        f"Adopt this response persona: {persona}. "
+        f"Persona guidance: {PERSONAS[persona]}\n\n"
+        f"User request: {prompt}"
+    )
+
+
+def conversation_export(persona: str) -> str:
+    """Create a downloadable JSON representation of the active conversation."""
+    return json.dumps(
+        {
+            "saved_at": dt.datetime.now().isoformat(timespec="seconds"),
+            "persona": persona,
+            "thread_id": st.session_state.get("thread_id"),
+            "messages": st.session_state.messages,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
 def render_response_time(seconds: float | None) -> None:
     """Display an end-to-end Foundry agent response time."""
     if seconds is not None:
@@ -90,7 +129,7 @@ def render_response_time(seconds: float | None) -> None:
 # AGENT EXECUTION
 # =====================================================
 
-def invoke_agent(prompt: str) -> tuple[str, float]:
+def invoke_agent(prompt: str, persona: str) -> tuple[str, float]:
     """Send a prompt to the Azure AI agent and return text and response time."""
 
     if not AGENT_ID:
@@ -106,7 +145,7 @@ def invoke_agent(prompt: str) -> tuple[str, float]:
     client.agents.messages.create(
         thread_id=thread_id,
         role="user",
-        content=prompt,
+        content=build_agent_prompt(prompt, persona),
     )
 
     run = client.agents.runs.create(
@@ -729,6 +768,13 @@ with st.sidebar:
             "AZURE_VAL_AGENT_ID is missing from the .env file."
         )
 
+    st.subheader("Response Persona")
+    persona = st.selectbox(
+        "Analyze as",
+        options=tuple(PERSONAS),
+        help="Guides how VAL prioritizes and presents its analysis.",
+    )
+
     if st.button(
         "＋ New Conversation",
         use_container_width=True,
@@ -744,6 +790,18 @@ with st.sidebar:
             use_container_width=True,
         ):
             st.session_state.pending_prompt = action
+
+    st.subheader("Save Conversation")
+    st.download_button(
+        "⇩ Download JSON",
+        data=conversation_export(persona),
+        file_name=(
+            f"val-conversation-{dt.datetime.now():%Y%m%d-%H%M%S}.json"
+        ),
+        mime="application/json",
+        use_container_width=True,
+        disabled=not st.session_state.messages,
+    )
 
 
 # =====================================================
@@ -775,9 +833,10 @@ pending_prompt = st.session_state.pop(
     None,
 )
 
-prompt = pending_prompt or st.chat_input(
+chat_prompt = st.chat_input(
     "Ask VAL about your vendor and contract data..."
 )
+prompt = pending_prompt or chat_prompt
 
 
 if prompt:
@@ -794,7 +853,7 @@ if prompt:
     try:
         with st.chat_message("assistant"):
             with st.spinner("VAL is analyzing..."):
-                response, response_time = invoke_agent(prompt)
+                response, response_time = invoke_agent(prompt, persona)
 
             render_response(response)
             render_response_time(response_time)
